@@ -5,32 +5,17 @@ LibStub('AceAddon-3.0'):NewAddon(
 );
 _G[addonName] = MissionScanner;
 
-local StdUi = LibStub('StdUi', true);
-local LIN = LibStub('LibItemNames');
-
-local allItems = LIN:GetItemNames();
 local TableInsert = tinsert;
 local GetItemInfo = GetItemInfo;
 local ipairs = ipairs;
 local pairs = pairs;
+local GetAvailableMissions = C_Garrison.GetAvailableMissions;
 
-MissionScanner.defaultOptions = {
-	global = {
-		enabled = true,
-		alert = true,
-		wantedRewards = {},
-		garrisons = {
-			[LE_FOLLOWER_TYPE_GARRISON_6_0] = true,
-			[LE_FOLLOWER_TYPE_GARRISON_7_0] = true,
-			[LE_FOLLOWER_TYPE_GARRISON_8_0] = true,
-		},
-		whiteList
-	}
-}
 MissionScanner.foundMissions = {};
+MissionScanner.hasBeenScanned = false;
 
 function MissionScanner:OnInitialize()
-	self.db = LibStub('AceDB-3.0'):New('MissionScannerOptions', self.defaultOptions);
+	self.db = LibStub('AceDB-3.0'):New('MissionScannerDb', self.defaultOptions);
 
 	self:RegisterAllEvents();
 	self:RegisterChatCommand('mscan', 'ShowWindow');
@@ -39,7 +24,45 @@ end
 
 function MissionScanner:RegisterAllEvents()
 	self:RegisterBucketEvent('GARRISON_MISSION_LIST_UPDATE', 2, 'FilterMissions');
+	self:RegisterEvent('PLAYER_ENTERING_WORLD', 'CheckMissionsOnLogin')
 	--'GET_ITEM_INFO_RECEIVED'
+end
+
+function MissionScanner:CheckMissionsOnLogin(e, isInitialLogin, isReloadingUi, isTimer)
+	if isReloadingUi or not isInitialLogin then
+		print('reload')
+		return;
+	end
+
+	if isTimer then
+		self.activeInitTimer = nil;
+	end
+
+	if self.activeInitTimer then
+		-- Timer has been scheduled, cancel
+		return;
+	end
+
+	if not self.hasBeenScanned then
+		self.activeInitTimer = self:ScheduleTimer('CheckMissionsOnLogin', 5, e, isInitialLogin, isReloadingUi, true);
+		return;
+	end
+
+	if InCombatLockdown() or IsInInstance() then
+		self.activeInitTimer = self:ScheduleTimer('CheckMissionsOnLogin', 5, e, isInitialLogin, isReloadingUi, true);
+		return;
+	end
+
+	if self.activeInitTimer then
+		self:CancelTimer(self.activeInitTimer);
+		self.activeInitTimer = nil;
+	end
+
+	if #self.foundMissions > 0 then
+		self:ShowWindow();
+	else
+		self:Print('Not found any missions');
+	end
 end
 
 function MissionScanner:FilterMissions()
@@ -68,226 +91,75 @@ function MissionScanner:FilterMissions()
 	end
 
 	self:Print('FilterMissions');
+	self.hasBeenScanned = true;
 end
 
 function MissionScanner:IsMissionWanted(mission)
+	for _, reward in ipairs(mission.rewards) do
+		local itemName, itemIcon, itemLink;
 
+		if reward.itemID then
+			itemName, itemLink, _, _, _, _, _, _, _, itemIcon = GetItemInfo(reward.itemID);
+			if self.db.global.list.items[reward.itemID] then
+				return true,
+					itemIcon or mission.icon or reward.icon,
+					reward.quantity or 1,
+					itemName or reward.title,
+					reward.itemID;
+			end
+		end
+
+		if reward.currencyID then
+			itemName = GetCurrencyInfo(reward.currencyID);
+			if self.db.global.list.currencies[reward.currencyID] then
+				return true,
+					itemIcon or mission.icon or reward.icon,
+					reward.quantity or 1,
+					itemName or reward.title,
+					reward.currencyID,
+					reward.currencyID;
+			end
+		end
+
+		if reward.currencyID == 0 then
+			if self.db.global.list.currencies['gold'] then
+				local money = math.floor(reward.quantity / 10000);
+				return true,
+					reward.icon,
+					money,
+					reward.title,
+					nil,
+					nil,
+					reward.quantity
+				;
+			end
+		end
+	end
+
+	return false;
 end
 
 function MissionScanner:ScanGarrisonReward(garrisonId)
-	local missions = C_Garrison.GetAvailableMissions(garrisonId);
+	local missions = GetAvailableMissions(garrisonId);
 	if not missions then
 		return;
 	end
 
 	for _, mission in ipairs(missions) do
-		for _, reward in ipairs(mission.rewards) do
-			local itemName, itemIcon, itemLink, itemName;
+		local isWanted, icon, qty, itemName, itemId, currencyId, gold = self:IsMissionWanted(mission);
 
-			if reward.itemID then
-				itemName, itemLink, _, _, _, _, _, _, _, itemIcon = GetItemInfo(reward.itemID);
-			end
-
-			if reward.currencyID then
-				itemName = GetCurrencyInfo(reward.currencyID)
-			end
-
-			--if tContains(self.db.global.wantedRewards, reward.itemID) then
-				TableInsert(self.foundMissions, {
-					mission = mission,
-					missionIcon = itemIcon or mission.icon or reward.icon,
-					qty = reward.quantity or 1,
-					itemName = itemName or reward.title,
-					missionName = mission.name or mission.title,
-					missionType = mission.type,
-					itemId = reward.itemID,
-					itemLink = itemLink,
-				});
-			--end
-		end
-	end
-end
-
-local function updateItemButton(parent, checkbox, data)
-	checkbox.data = data;
-
-	checkbox:SetText(data.itemName);
-	checkbox.icon:SetTexture(data.texture);
-	StdUi:SetObjSize(checkbox, 60, 20);
-	checkbox:SetPoint('RIGHT');
-	checkbox:SetPoint('LEFT');
-
-	if not checkbox.OnValueChanged then
-		checkbox.OnValueChanged = function(_, flag)
-			data.checked = flag;
-		end
-	end
-
-	return checkbox;
-end
-
-local createItemFrame = function (frame, row, info, dataKey, db)
-	local element = StdUi:ScrollFrame(frame, 300, 200);
-
-	function element:UpdateItems()
-		if not self.childItems then
-			self.childItems = {};
-		end
-
-		StdUi:ObjectList(
-			self.scrollChild,
-			self.childItems,
-			'IconCheckbox',
-			updateItemButton,
-			db.wantedRewards, 1, 0, 0
-		);
-	end
-
-	element:UpdateItems();
-	return element;
-end
-
-local addItemButtonFn = function()
-	local addItemBox = MissionScanner.optionsFrame.elements['addItemBox'];
-	local itemId = addItemBox:GetValue();
-	local itemName = addItemBox:GetText();
-
-	if itemId and addItemBox:IsValid() then
-		print('adding', itemId);
-		if not MissionScanner.db.global.wantedRewards[itemId] then
-			local itemIcon = GetItemIcon(itemId);
-
-			MissionScanner.db.global.wantedRewards[itemId] = {
-				itemId = itemId,
+		if isWanted then
+			TableInsert(self.foundMissions, {
+				mission = mission,
+				missionIcon = icon,
+				qty = qty,
 				itemName = itemName,
-				texture = itemIcon
-			};
-		end
-
-		MissionScanner.optionsFrame.elements['items']:UpdateItems();
-	else
-		MissionScanner:Print('Invalid item, please provide item ID or select it from list');
-	end
-
-	MissionScanner.optionsFrame.elements['items']:UpdateItems();
-end
-
-local customButtonUpdate = function(panel, optionButton, data)
-	if not optionButton.icon then
-		optionButton.text:SetJustifyH('LEFT');
-		optionButton.text:ClearAllPoints();
-		StdUi:GlueAcross(optionButton.text, optionButton, 22, -2, -2, 2);
-
-		optionButton.icon = StdUi:Texture(optionButton, 20, 20);
-		StdUi:GlueLeft(optionButton.icon, optionButton, 2, 0, true);
-	end
-
-	optionButton.icon:SetTexture(data.texture)
-	optionButton.value = data.value;
-
-	optionButton:SetWidth(panel:GetWidth());
-	optionButton:SetText(data.text);
-end
-
-local itemsFn = function(ac, plainText)
-	local itemLimit = ac.itemLimit;
-	local result = {};
-
-	for itemId, itemName in pairs(allItems) do
-		if itemName:lower():find(plainText:lower(), nil, true) then
-			local itemIcon = GetItemIcon(itemId);
-			tinsert(result, {
-				text = itemName,
-				value = itemId,
-				texture = itemIcon
+				missionName = mission.name or mission.title,
+				missionType = mission.type,
+				itemId = itemId,
+				currencyId = currencyId,
+				gold = gold,
 			});
 		end
-
-		if #result >= itemLimit then
-			break;
-		end
 	end
-
-	return result;
-end
-
-function MissionScanner:GetOptionsConfig()
-	local config = {
-		layoutConfig = { padding = { top = 30 } },
-		database     = self.db.global,
-		rows         = {
-			[1] = {
-				enabled = {
-					type   = 'checkbox',
-					label  = 'Enable addon',
-					column = 6
-				},
-				alert = {
-					type   = 'checkbox',
-					label  = 'Show alert when new mission is up',
-					column = 6
-				},
-			},
-			[2] = {
-				garrisons = {
-					type = 'dropdown',
-					label = 'Garrison Types',
-					multi = true,
-					assoc = true,
-					options = {
-						{text = 'Garrison', value = LE_FOLLOWER_TYPE_GARRISON_6_0},
-						{text = 'Order Hall', value = LE_FOLLOWER_TYPE_GARRISON_7_0},
-						{text = 'War Campaign', value = LE_FOLLOWER_TYPE_GARRISON_8_0},
-					}
-				}
-			},
-			[3] = {
-				addItemBox = {
-					type = 'autocomplete',
-					label = 'Search or provide Item ID',
-					column = 6,
-					order = 1,
-					items = itemsFn,
-					validator = StdUi.Util.autocompleteItemValidator,
-					transformer = StdUi.Util.autocompleteItemTransformer,
-					buttonUpdate = customButtonUpdate
-				},
-				addItem = {
-					type   = 'button',
-					text  = 'Add Item',
-					column = 6,
-					order = 2,
-					onClick = addItemButtonFn
-				},
-			},
-			[4] = {
-				items = {
-					type = 'custom',
-					createFunction = createItemFrame
-				}
-			}
-		},
-	};
-
-	return config;
-end
-
-function MissionScanner:AddToBlizzardOptions()
-	if self.optionsFrame then
-		return;
-	end
-
-	local optionsFrame = StdUi:PanelWithTitle(UIParent, 100, 100, addonName .. ' Options');
-	self.optionsFrame = optionsFrame;
-	optionsFrame:Hide();
-	optionsFrame.name = addonName;
-
-	StdUi:BuildWindow(self.optionsFrame, self:GetOptionsConfig());
-	StdUi:EasyLayout(optionsFrame, { padding = { top = 40 } });
-
-	optionsFrame:SetScript('OnShow', function(of)
-		of:DoLayout();
-	end);
-
-	InterfaceOptions_AddCategory(optionsFrame);
 end

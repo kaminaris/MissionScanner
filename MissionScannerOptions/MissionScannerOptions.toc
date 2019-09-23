@@ -1,0 +1,11 @@
+## Title: MissionScanner Options
+## Notes: MissionScanner Options
+## Version: 8.2.0
+## Author: Kaminaris
+## Interface: 80200
+## Dependencies: MissionScanner
+## LoadOnDemand: 1
+
+Libs\LibItemNames\LibItemNames.xml
+
+Options.lua

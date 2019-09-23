@@ -28,9 +28,26 @@ function MissionScanner:ShowWindow()
 			format = 'icon',
 			events = {
 				OnEnter = function(table, cellFrame, rowFrame, rowData, columnData, rowIndex)
-					if rowData.itemId then
+					local shouldShow = false;
+					print(rowData.itemId, rowData.currencyId)
+
+					if rowData.currencyId then
+						GameTooltip:SetOwner(self.mainWindow);
+						GameTooltip:SetCurrencyByID(rowData.currencyId, rowData.qty);
+						shouldShow = true;
+					elseif rowData.itemId then
 						GameTooltip:SetOwner(self.mainWindow);
 						GameTooltip:SetItemByID(rowData.itemId);
+						shouldShow = true;
+					elseif rowData.gold then
+						GameTooltip:SetOwner(self.mainWindow);
+						GameTooltip:SetText(rowData.itemName);
+						GameTooltip:AddLine(GetMoneyString(rowData.gold));
+						shouldShow = true;
+					end
+
+					if shouldShow then
+
 						GameTooltip:Show();
 						GameTooltip:ClearAllPoints();
 						StdUi:GlueOpposite(GameTooltip, self.mainWindow, 0, 0, 'TOPRIGHT');
@@ -46,7 +63,7 @@ function MissionScanner:ShowWindow()
 		},
 		{
 			name = 'Qty',
-			width = 30,
+			width = 40,
 			align = 'LEFT',
 			index = 'qty',
 			format = 'text',
@@ -67,7 +84,7 @@ function MissionScanner:ShowWindow()
 		},
 		{
 			name = 'missionType',
-			width = 100,
+			width = 150,
 			align = 'LEFT',
 			index = 'missionType',
 			format = 'text',
@@ -96,11 +113,12 @@ function MissionScanner:ShowWindow()
 	--		return true;
 	--	end
 	--});
-	StdUi:GlueAcross(missionTable, self.mainWindow, 20, -40, -20, 55);
+	StdUi:GlueAcross(missionTable, self.mainWindow, 20, -60, -20, 55);
 	self.mainWindow.missionTable = missionTable;
 	self:UpdateTableData();
 end
 
 function MissionScanner:UpdateTableData()
+	self:FilterMissions();
 	self.mainWindow.missionTable:SetData(self.foundMissions, true);
 end

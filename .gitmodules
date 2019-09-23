@@ -1,3 +1,6 @@
 [submodule "Libs/StdUi"]
 	path = Libs/StdUi
 	url = git@github.com:kaminaris/StdUi.git
+[submodule "MissionScannerOptions/Libs/LibItemNames"]
+	path = MissionScannerOptions/Libs/LibItemNames
+	url = git@github.com:fireundubh/LibItemNames.git
