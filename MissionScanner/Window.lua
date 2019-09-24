@@ -29,7 +29,6 @@ function MissionScanner:ShowWindow()
 			events = {
 				OnEnter = function(table, cellFrame, rowFrame, rowData, columnData, rowIndex)
 					local shouldShow = false;
-					print(rowData.itemId, rowData.currencyId)
 
 					if rowData.currencyId then
 						GameTooltip:SetOwner(self.mainWindow);

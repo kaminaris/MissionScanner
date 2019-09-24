@@ -30,7 +30,6 @@ end
 
 function MissionScanner:CheckMissionsOnLogin(e, isInitialLogin, isReloadingUi, isTimer)
 	if isReloadingUi or not isInitialLogin then
-		print('reload')
 		return;
 	end
 
@@ -85,12 +84,12 @@ function MissionScanner:FilterMissions()
 
 	for garrisonId, garrisonEnabled in pairs(self.db.global.garrisons) do
 		if garrisonEnabled then
-			self:Print('Scanning garrison type: ' .. garrisonId)
+			--self:Print('Scanning garrison type: ' .. garrisonId)
 			self:ScanGarrisonReward(garrisonId);
 		end
 	end
 
-	self:Print('FilterMissions');
+	--self:Print('FilterMissions');
 	self.hasBeenScanned = true;
 end
 
